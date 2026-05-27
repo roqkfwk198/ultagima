@@ -116,18 +116,8 @@ export default function HomeScreen({ onNavigate, uvIndex, setUvIndex }: HomeScre
           </div>
         </div>
 
-        {/* 슬라이더 (수동 조절용) */}
+        {/* UV 게이지 (API 기반, 읽기 전용) */}
         <div id="uv-gauge-control" className="relative w-full h-8 flex items-center">
-          <input
-            id="uv-index-slider"
-            type="range"
-            min="0"
-            max="11"
-            value={uvIndex}
-            onChange={(e) => setUvIndex(Number(e.target.value))}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-            aria-label="UV Index Adjuster"
-          />
           <div className="absolute inset-x-0 h-2.5 rounded-full overflow-hidden flex shadow-inner">
             <div className="w-[18%] bg-[#FFD600]" title="낮음 (0-2)" />
             <div className="w-[27%] bg-[#fdd404]" title="보통 (3-5)" />
@@ -137,10 +127,13 @@ export default function HomeScreen({ onNavigate, uvIndex, setUvIndex }: HomeScre
           <div
             id="uv-slider-thumb"
             className="absolute -translate-x-1/2 flex flex-col items-center z-10 transition-all pointer-events-none"
-            style={{ left: getSliderPosition(uvIndex) }}
+            style={{ left: getSliderPosition(uvIndex), borderColor: status.color }}
           >
-            <div className="w-6 h-6 bg-white rounded-full shadow-lg border-4 border-[#8c5000] flex items-center justify-center">
-              <div className="w-1.5 h-1.5 bg-[#8c5000] rounded-full" />
+            <div
+              className="w-6 h-6 bg-white rounded-full shadow-lg border-4 flex items-center justify-center"
+              style={{ borderColor: status.color }}
+            >
+              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
             </div>
           </div>
         </div>
