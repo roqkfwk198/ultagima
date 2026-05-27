@@ -1,0 +1,6 @@
+{
+  "name": "얼타지마",
+  "description": "스마트한 자외선 차단 및 피부 관리 솔루션 얼타지마",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
