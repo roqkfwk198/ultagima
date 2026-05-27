@@ -10,19 +10,43 @@ interface TimerScreenProps {
   uvIndex: number;
 }
 
+/** 자외선 지수별 권장 재도포 간격 (분) */
+function getReapplyMinutes(uvIndex: number, smartAlert: boolean): number {
+  if (!smartAlert) return 120;
+  if (uvIndex >= 8) return 60;
+  if (uvIndex >= 5) return 90;
+  return 120;
+}
+
+/** 총 목표 시간(초) 계산 - 권장 재도포 주기 × 2 사이클 = 최대 4시간, 최소 2시간 */
+function getTargetSeconds(uvIndex: number, smartAlert: boolean): number {
+  const mins = getReapplyMinutes(uvIndex, smartAlert);
+  // 목표: 재도포 주기에 맞춰 타이머를 1회 설정 (최대 2시간)
+  return Math.min(mins, 120) * 60;
+}
+
 export default function TimerScreen({ uvIndex }: TimerScreenProps) {
-  // Initial 1 hour 15 minutes (4500 seconds)
-  const initialSeconds = 4500;
+  const [smartAlert, setSmartAlert] = useState(true);
+  const alertIntervalMinutes = getReapplyMinutes(uvIndex, smartAlert);
+
+  // 타이머 목표 = 권장 재도포 간격 (분) 변환
+  // ※ 기존 코드에서 4500초(75분)로 되어 있던 버그를 수정:
+  //   UV 지수와 스마트알림에 따라 60~120분으로 정확히 설정
+  const initialSeconds = alertIntervalMinutes * 60;
+
   const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
   const [isRunning, setIsRunning] = useState(true);
-  const [smartAlert, setSmartAlert] = useState(true);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Dynamic interval calculation based on UV Index and Smart Alert status
-  // If Smart Alert is enabled, higher UV Index leads to faster alerts
-  const alertInterval = smartAlert 
-    ? uvIndex >= 8 ? 60 : uvIndex >= 5 ? 90 : 120 
-    : 120;
+  // smartAlert 또는 uvIndex 변경 시 타이머 재설정
+  const prevAlertRef = useRef(alertIntervalMinutes);
+  useEffect(() => {
+    if (prevAlertRef.current !== alertIntervalMinutes) {
+      prevAlertRef.current = alertIntervalMinutes;
+      setSecondsLeft(alertIntervalMinutes * 60);
+      setIsRunning(true);
+    }
+  }, [alertIntervalMinutes]);
 
   useEffect(() => {
     if (isRunning && secondsLeft > 0) {
@@ -32,23 +56,17 @@ export default function TimerScreen({ uvIndex }: TimerScreenProps) {
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
     }
-
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isRunning, secondsLeft]);
 
-  // Format seconds into hh:mm:ss style or mm:ss
   const formatTime = (totalSecs: number) => {
     const hrs = Math.floor(totalSecs / 3600);
     const mins = Math.floor((totalSecs % 3600) / 60);
     const secs = totalSecs % 60;
-    
-    const formattedHrs = hrs > 0 ? `${hrs.toString().padStart(2, '0')}:` : '';
-    const formattedMins = mins.toString().padStart(2, '0');
-    const formattedSecs = secs.toString().padStart(2, '0');
-    
-    return `${formattedHrs}${formattedMins}:${formattedSecs}`;
+    const h = hrs > 0 ? `${hrs.toString().padStart(2, '0')}:` : '';
+    return `${h}${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   const resetTimer = () => {
@@ -56,36 +74,31 @@ export default function TimerScreen({ uvIndex }: TimerScreenProps) {
     setIsRunning(true);
   };
 
-  const toggleTimer = () => {
-    setIsRunning(!isRunning);
-  };
+  const toggleTimer = () => setIsRunning((prev) => !prev);
 
-  // SVG parameters for circular progression
+  // SVG 원형 프로그레스
   const radius = 90;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (secondsLeft / initialSeconds) * circumference;
 
+  // 타이머 완료 여부
+  const isDone = secondsLeft === 0;
+
   return (
     <div id="timer-screen-container" className="flex flex-col gap-6 max-w-md mx-auto">
-      {/* Circular Progress Gauge */}
-      <section id="timer-gauge-section" className="flex flex-col items-center justify-center p-6 bg-white rounded-2xl border border-gray-100 shadow-sm">
+      {/* 원형 게이지 */}
+      <section
+        id="timer-gauge-section"
+        className="flex flex-col items-center justify-center p-6 bg-white rounded-2xl border border-gray-100 shadow-sm"
+      >
         <div className="relative w-64 h-64 flex items-center justify-center">
-          {/* Circular SVG Gauge Progress */}
           <svg className="w-full h-full transform -rotate-90">
-            {/* Background Circle */}
+            <circle cx="128" cy="128" r={radius} className="stroke-gray-100 fill-transparent" strokeWidth="12" />
             <circle
               cx="128"
               cy="128"
               r={radius}
-              className="stroke-gray-100 fill-transparent"
-              strokeWidth="12"
-            />
-            {/* Foreground Progress Circle */}
-            <circle
-              cx="128"
-              cy="128"
-              r={radius}
-              className="stroke-[#ff9500] fill-transparent transition-all duration-1000 ease-linear"
+              className={`fill-transparent transition-all duration-1000 ease-linear ${isDone ? 'stroke-green-500' : 'stroke-[#ff9500]'}`}
               strokeWidth="12"
               strokeDasharray={circumference}
               strokeDashoffset={strokeDashoffset}
@@ -93,20 +106,31 @@ export default function TimerScreen({ uvIndex }: TimerScreenProps) {
             />
           </svg>
 
-          {/* Texts inside timer */}
           <div className="absolute flex flex-col items-center text-center">
-            <span className="text-sm font-semibold text-gray-400">남은 시간</span>
-            <span className="text-4xl font-black text-[#8c5000] my-1 font-mono">
-              {formatTime(secondsLeft)}
+            <span className="text-sm font-semibold text-gray-400">
+              {isDone ? '재도포 시간!' : '다음 재도포까지'}
+            </span>
+            <span
+              className={`text-4xl font-black my-1 font-mono ${isDone ? 'text-green-600' : 'text-[#8c5000]'}`}
+            >
+              {isDone ? '✓ 완료' : formatTime(secondsLeft)}
             </span>
             <span className="text-xs font-semibold text-gray-500 bg-[#ffe171]/50 px-2.5 py-0.5 rounded-full mt-1">
-              목표: 2시간
+              목표: {alertIntervalMinutes}분 후 재도포
             </span>
           </div>
         </div>
+
+        {/* 완료 메시지 */}
+        {isDone && (
+          <div className="mt-3 w-full px-4 py-3 bg-green-50 rounded-xl border border-green-200 text-center">
+            <p className="text-sm font-black text-green-700">☀️ 선크림 재도포 시간입니다!</p>
+            <p className="text-xs text-green-600 mt-0.5">타이머 재설정 후 다시 외출을 즐기세요.</p>
+          </div>
+        )}
       </section>
 
-      {/* Action buttons */}
+      {/* 액션 버튼 */}
       <section id="timer-actions-section" className="flex flex-col gap-3">
         <button
           id="btn-timer-reset"
@@ -120,27 +144,31 @@ export default function TimerScreen({ uvIndex }: TimerScreenProps) {
         <button
           id="btn-timer-toggle"
           onClick={toggleTimer}
-          className="w-full bg-gray-100 text-gray-800 py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-200 active:scale-98 transition-all font-semibold"
+          disabled={isDone}
+          className="w-full bg-gray-100 text-gray-800 py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-200 active:scale-98 transition-all font-semibold disabled:opacity-50"
         >
           {isRunning ? (
             <>
               <Pause className="w-5 h-5 text-gray-600" />
-              <span className="text-base font-bold">타이머 일시정지</span>
+              <span className="text-base font-bold">일시정지</span>
             </>
           ) : (
             <>
               <Play className="w-5 h-5 text-[#8c5000] fill-[#8c5000]" />
-              <span className="text-base font-bold">타이머 다시시작</span>
+              <span className="text-base font-bold">다시시작</span>
             </>
           )}
         </button>
       </section>
 
-      {/* Info Status Cards */}
+      {/* 상태 카드 */}
       <section id="timer-settings-summary" className="grid grid-cols-2 gap-4">
         <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm flex flex-col gap-1">
-          <span className="text-xs font-semibold text-gray-400">알림 주기</span>
-          <span className="text-xl font-bold text-[#8c5000]">{alertInterval}분</span>
+          <span className="text-xs font-semibold text-gray-400">재도포 주기</span>
+          <span className="text-xl font-bold text-[#8c5000]">{alertIntervalMinutes}분</span>
+          <span className="text-[9px] text-gray-400">
+            UV {uvIndex} 기준{smartAlert ? ' (스마트)' : ''}
+          </span>
         </div>
         <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm flex flex-col gap-1">
           <span className="text-xs font-semibold text-gray-400">알림 소리</span>
@@ -151,22 +179,29 @@ export default function TimerScreen({ uvIndex }: TimerScreenProps) {
         </div>
       </section>
 
-      {/* Smart Alert Switch */}
-      <section id="smart-alert-section" className="bg-[#ffe171] rounded-xl p-4 border border-[#ffe171]/50 flex items-center justify-between shadow-sm">
+      {/* 스마트 알림 토글 */}
+      <section
+        id="smart-alert-section"
+        className="bg-[#ffe171] rounded-xl p-4 border border-[#ffe171]/50 flex items-center justify-between shadow-sm"
+      >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-[#fdd404] text-[#2d1600] flex items-center justify-center">
             <AlertCircle className="w-5 h-5" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-[#2d1600]">스마트 알림</h3>
-            <p className="text-xs text-[#2d1600]/80 mt-0.5">자외선 지수에 따라 주기를 자동 조절합니다</p>
+            <p className="text-xs text-[#2d1600]/80 mt-0.5">
+              UV 지수에 따라 재도포 주기를 자동 조절합니다
+            </p>
+            <p className="text-[9px] text-[#2d1600]/60 mt-0.5">
+              UV≥8 → 60분 / UV≥5 → 90분 / 그 외 → 120분
+            </p>
           </div>
         </div>
-        
-        {/* Toggle widget */}
+
         <button
           id="smart-alert-toggle"
-          onClick={() => setSmartAlert(!smartAlert)}
+          onClick={() => setSmartAlert((prev) => !prev)}
           className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${
             smartAlert ? 'bg-[#8c5000]' : 'bg-gray-300'
           }`}
